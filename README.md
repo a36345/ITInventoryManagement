@@ -204,5 +204,3 @@ venv\Scripts\python -m pytest tests/ -v
 
 # Só testes de integração da API
 venv\Scripts\python -m pytest tests/test_api.py -v
-
-# Só testes unitários do classificador
