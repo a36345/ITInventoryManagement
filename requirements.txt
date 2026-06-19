@@ -1,0 +1,36 @@
+# IT Inventory SML — dependências Python
+# Instalar com:  pip install -r requirements.txt
+# Ou usa:        instalar.bat  (recomendado — cria venv e regista pywin32)
+
+# Interface desktop
+customtkinter>=5.2.2
+pillow>=10.0.0
+
+# API REST
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# IA (Anthropic Claude)
+anthropic>=0.25.0
+
+# Exportação de relatórios
+openpyxl>=3.1.0
+
+# HTTP / rede
+requests>=2.31.0
+
+# Monitorização de sistema (network_monitor.py)
+psutil>=5.9.0
+
+# Active Directory / LDAP sync (ad_sync.py)
+ldap3>=2.9.0
+
+# WMI — inventário remoto de PCs Windows (discovery.py _try_wmi)
+# Requer registo pós-instalação: python Scripts/pywin32_postinstall.py -install
+# A app funciona sem estes mas não recolhe RAM/CPU/disco dos PCs via WMI.
+pywin32; sys_platform == "win32"
+wmi; sys_platform == "win32"
+
+# Testes (desenvolvimento / verificação de integridade)
+# Correr: venv\Scripts\python -m pytest tests/ -v
+pytest>=8.0.0
