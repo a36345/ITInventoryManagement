@@ -1,0 +1,68 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IT Inventory SML — Arquitectura distribuída
+#
+# Serviços:
+#   api     — Flask REST API (porta 5050)
+#   worker  — Discovery worker autónomo (scan de rede + sync AD)
+#
+# BD partilhada via volume Docker (SQLite WAL permite leitores concorrentes).
+# Para activar IA local, adicionar o serviço ollama abaixo.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: itinventory-api
+    ports:
+      - "5050:5050"
+    volumes:
+      - db_data:/data
+    environment:
+      ITINV_DB: /data/inventory.db
+      ITINV_KEYFILE: /data/.key         # chave SQLCipher partilhada no volume
+      # ITINV_CIPHER_KEY: ""            # alternativa: passar a chave directamente
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:5050/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: itinventory-worker
+    volumes:
+      - db_data:/data
+    environment:
+      ITINV_DB: /data/inventory.db
+      ITINV_HOME: /data
+      ITINV_KEYFILE: /data/.key
+      ITINV_SUBNET: "${ITINV_SUBNET:-192.168.1.0/24}"
+    command: ["python", "services/discovery_worker.py", "--loop", "24"]
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # ── Opcional: Ollama para IA local ────────────────────────────────────────
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: itinventory-ollama
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   ports:
+  #     - "11434:11434"
+  #   restart: unless-stopped
+
+volumes:
+  db_data:
+  # ollama_data:
