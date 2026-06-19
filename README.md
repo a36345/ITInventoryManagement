@@ -9,7 +9,7 @@ Trabalho Prático — Sistemas Operativos e Sistemas Distribuídos
 
 ```
 ┌─────────────────────┐     HTTP REST      ┌──────────────────────┐
-│  web/index.html     │ ◄────────────────► │  api.py  :5050       │
+│  web/index.html     │ ◄────────────────► │  api.py  :8080       │
 │  (Frontend Web SPA) │                    │  (API Service)       │
 └─────────────────────┘                    └──────────┬───────────┘
                                                       │ SQLite WAL
@@ -30,7 +30,7 @@ Trabalho Prático — Sistemas Operativos e Sistemas Distribuídos
 |---|---|---|---|
 | Frontend Web | `web/index.html` | — | SPA HTML/JS, serve via API |
 | Desktop UI | `main.py` | — | Interface CustomTkinter |
-| API Principal | `api.py` | 5050 | REST API Flask |
+| API Principal | `api.py` | 8080 | REST API Flask |
 | Discovery Worker | `services/discovery_worker.py` | — | Processo autónomo de scan |
 | Persistência | `inventory.db` (SQLite WAL) | — | Base de dados partilhada |
 
@@ -82,7 +82,7 @@ Trabalho Prático — Sistemas Operativos e Sistemas Distribuídos
 ```
 ITInventory/
 ├── main.py                  # UI desktop (CustomTkinter)
-├── api.py                   # REST API Flask (porta 5050)
+├── api.py                   # REST API Flask (porta 8080)
 ├── core/
 │   ├── database.py          # SQLite WAL, schema, helpers thread-safe
 │   ├── discovery.py         # Scan de rede: ICMP/subprocess/TCP, SNMP, WMI
@@ -134,7 +134,7 @@ ITInventory/
 venv\Scripts\python main.py
 ```
 
-A API REST inicia automaticamente em `http://localhost:5050`.
+A API REST inicia automaticamente em `http://localhost:8080`.
 
 ### Opção B — Docker Compose (arquitectura distribuída)
 
@@ -154,8 +154,8 @@ docker compose down
 ```
 
 Serviços disponíveis:
-- **API + Web UI**: `http://localhost:5050`
-- **Health check**: `http://localhost:5050/api/health`
+- **API + Web UI**: `http://localhost:8080`
+- **Health check**: `http://localhost:8080/api/health`
 
 ### Worker autónomo (sem Docker)
 
