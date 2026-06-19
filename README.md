@@ -206,15 +206,3 @@ venv\Scripts\python -m pytest tests/ -v
 venv\Scripts\python -m pytest tests/test_api.py -v
 
 # Só testes unitários do classificador
-venv\Scripts\python -m pytest tests/test_classifier.py -v
-```
-
----
-
-## Credenciais por Omissão
-
-| Utilizador | Password | Role |
-|---|---|---|
-| admin | admin | Administrador |
-
-**Alterar a password após primeira execução nas Definições.**
