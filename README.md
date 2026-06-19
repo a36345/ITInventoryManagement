@@ -1,109 +1,220 @@
-# IT Inventory
+# IT Inventory — SML Portugal
 
-Aplicação de inventário de IT para ambientes Windows com interface desktop e API REST integrada.
+Sistema distribuído de gestão de inventário de TI.  
+Trabalho Prático — Sistemas Operativos e Sistemas Distribuídos
 
-## Funcionalidades
+---
 
-- **Auto-discovery de rede** — scan automático de dispositivos (intervalo de 24h configurável)
-- **SNMP para impressoras** — polling automático a cada 15 minutos
-- **Sync Active Directory / LDAP** — sincronização de departamentos, hostnames e IPs
-- **Classificação IA** — classificação automática de dispositivos via Anthropic Claude + Ollama
-- **API REST** — interface web para clientes na rede (porta 5050)
-- **Alertas por email** — notificações SMTP automáticas
-- **Exportação Excel** — relatórios via openpyxl
-- **Inventário remoto de PCs Windows** — recolha de RAM, CPU e disco via WMI
-- **Gestão de utilizadores e roles** — admin, printer\_manager, normal
-- **Monitorização de rede em tempo real** — ping monitor e switch monitor
+## Arquitectura do Sistema
 
-## Tecnologias
-
-- Python 3.11+
-- CustomTkinter (interface desktop)
-- Flask + Flask-CORS (API REST)
-- SQLite (base de dados local)
-- Anthropic Claude API (IA)
-- ldap3 (Active Directory)
-- pywin32 / WMI (inventário remoto Windows)
-
-## Instalação (Windows)
-
-### Pré-requisitos
-
-- Python 3.11 ou 3.12 com "Add Python to PATH" activado
-- Windows 10/11
-
-### Passos
-
-1. Extrai o conteúdo para `C:\ITInventory\`
-2. Faz duplo clique em `instalar.bat` — cria o ambiente virtual e instala todas as dependências (~2-4 min)
-3. Faz duplo clique em `executar.bat` — abre a app e arranca a API na porta 5050
-
-### Instalação manual (alternativa)
-
-```bash
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-python venv\Scripts\pywin32_postinstall.py -install
-python main.py
+```
+┌─────────────────────┐     HTTP REST      ┌──────────────────────┐
+│  web/index.html     │ ◄────────────────► │  api.py  :5050       │
+│  (Frontend Web SPA) │                    │  (API Service)       │
+└─────────────────────┘                    └──────────┬───────────┘
+                                                      │ SQLite WAL
+┌─────────────────────┐     threads        ┌──────────▼───────────┐
+│  main.py            │ ──────────────────►│  inventory.db        │
+│  (Desktop UI)       │                    │  (Persistência)      │
+│  PingMonitor        │                    └──────────▲───────────┘
+│  NetworkMonitor     │                               │
+│  SwitchMonitor      │                    ┌──────────┴───────────┐
+│  JobScheduler       │                    │  discovery_worker.py │
+└─────────────────────┘                    │  (Serviço Autónomo)  │
+                                           └──────────────────────┘
 ```
 
-## Configuração inicial
+### Componentes
 
-Na app desktop, acede a **Configurações** e preenche:
+| Componente | Ficheiro | Porta | Descrição |
+|---|---|---|---|
+| Frontend Web | `web/index.html` | — | SPA HTML/JS, serve via API |
+| Desktop UI | `main.py` | — | Interface CustomTkinter |
+| API Principal | `api.py` | 5050 | REST API Flask |
+| Discovery Worker | `services/discovery_worker.py` | — | Processo autónomo de scan |
+| Persistência | `inventory.db` (SQLite WAL) | — | Base de dados partilhada |
 
-| Secção | Parâmetros principais |
-|---|---|
-| Rede | Subnet, SNMP community, intervalos de discovery |
-| Active Directory | DC Host, domínio, service account |
-| Email / SMTP | Host, porta, email de alertas |
-| IA | Anthropic API Key (`sk-ant-...`) |
-| Interface Web | API Key, CORS origins |
+---
 
-Depois vai a **Auto-Discovery → Iniciar scan** para o primeiro scan de rede.
+## Conceitos Distribuídos Implementados
 
-## Estrutura do Projeto
+### 1. Concorrência e Sincronização
+- `ThreadPoolExecutor` no discovery (`core/discovery.py`) para ping paralelo de toda a subnet
+- `PingMonitor`, `NetworkMonitor`, `SwitchMonitor` correm em threads independentes
+- `threading.local()` — uma conexão SQLite por thread, elimina `check_same_thread=False`
+- `threading.Lock` protege os caches partilhados de settings e estatísticas
+
+### 2. Tolerância a Falhas
+- Falha de SNMP, WMI ou AD sync não aborta o discovery global — cada protocolo tem tratamento de excepções independente
+- `PRAGMA busy_timeout=5000` — SQLite espera até 5 s antes de falhar em escrita concorrente
+- Discovery worker recomeça automaticamente ao fim de cada ciclo mesmo que o anterior falhe
+
+### 3. Consistência de Dados
+- SQLite em modo WAL (Write-Ahead Logging) permite leitores concorrentes durante escritas
+- `PRAGMA foreign_keys=ON` garante integridade referencial
+- Upsert por MAC e IP — evita duplicados mesmo que o mesmo dispositivo seja descoberto por caminhos diferentes
+- Operações críticas (criação de alertas, verificação de utilizadores) são atómicas numa única transacção
+
+### 4. Segurança e Controlo de Acessos
+- Três roles de utilizador: `admin`, `printer_manager`, `normal`
+- Passwords armazenadas com PBKDF2-HMAC-SHA256 + salt (100 000 iterações)
+- API Key opcional via header `X-API-Key`
+- CORS com origens configuráveis por base de dados
+- Navegação filtrada por role — painéis inacessíveis ficam invisíveis na UI
+
+### 5. Observabilidade e Monitorização
+- Log estruturado em `~/ITInventory/app.log` (UI) e `~/ITInventory/worker.log` (worker)
+- Endpoint `/api/health` — status e contagem de assets em tempo real
+- Histórico de ping por dispositivo nas últimas 24 h (`device_history`)
+- Métricas de rede (bandwidth, latência gateway/firewall) em `network_metrics` e `network_pings`
+- Alertas automáticos com envio de email (SMTP configurável)
+
+### 6. Componente Inteligente (valorizado)
+- `core/ai_engine.py` — abstracção com duas implementações intercambiáveis:
+  - **Anthropic Claude** (Haiku para classificação, Sonnet para OCR de faturas)
+  - **Ollama local** (fallback offline — llama3.2, llava)
+- Classificação automática de dispositivos descobertos por tipo, fabricante e confiança
+
+---
+
+## Estrutura de Ficheiros
 
 ```
 ITInventory/
-├── main.py               # Aplicação desktop (entry point)
-├── api.py                # API REST Flask
+├── main.py                  # UI desktop (CustomTkinter)
+├── api.py                   # REST API Flask (porta 5050)
 ├── core/
-│   ├── database.py       # Base de dados SQLite
-│   ├── discovery.py      # Motor de descoberta de rede
-│   ├── ai_engine.py      # Classificação IA (Claude + Ollama)
-│   ├── ad_sync.py        # Sincronização Active Directory
-│   ├── snmp_engine.py    # Motor SNMP (impressoras)
-│   ├── device_classifier.py
-│   ├── network_monitor.py
-│   ├── switch_monitor.py
-│   ├── scheduler.py
-│   ├── jobs.py
-│   └── notifications.py
-├── services/             # Workers distribuídos
-├── web/                  # Interface web (clientes)
-├── tests/                # Testes (pytest)
-├── requirements.txt
-├── instalar.bat          # Instalador automático
-└── executar.bat          # Lançador da aplicação
+│   ├── database.py          # SQLite WAL, schema, helpers thread-safe
+│   ├── discovery.py         # Scan de rede: ICMP/subprocess/TCP, SNMP, WMI
+│   ├── ai_engine.py         # Anthropic Claude + fallback Ollama
+│   ├── device_classifier.py # Classificação de dispositivos
+│   ├── snmp_engine.py       # Polling SNMP (impressoras, switches)
+│   ├── jobs.py              # Tarefas agendadas (discovery, SNMP, AD sync)
+│   ├── scheduler.py         # Agendador de jobs com threads
+│   ├── ad_sync.py           # Sincronização LDAP / Active Directory
+│   ├── network_monitor.py   # Monitorização de banda e latência
+│   ├── switch_monitor.py    # Monitorização de portas de switch
+│   ├── notifications.py     # Envio de email via SMTP
+│   └── oui_db.py            # Identificação de fabricante por MAC (OUI)
+├── services/
+│   ├── discovery_worker.py  # Worker autónomo (processo separado)
+│   └── README.md            # Diagrama de arquitectura e conceitos SO/SD
+├── web/
+│   └── index.html           # Frontend SPA (HTML/CSS/JS puro)
+├── tests/
+│   ├── test_classifier.py   # 108 testes unitários do classificador
+│   └── test_api.py          # Testes de integração da REST API
+├── Dockerfile.api           # Container da API Flask
+├── Dockerfile.worker        # Container do discovery worker
+├── docker-compose.yml       # Orquestração dos serviços
+└── requirements.txt         # Dependências Python (Windows)
 ```
+
+---
+
+## Requisitos
+
+- Python 3.11+ (ou Docker)
+- Windows: `pywin32` + `wmi` para inventário remoto via WMI (opcional)
+- Ollama local (opcional — necessário para IA offline)
+
+---
+
+## Instalação e Execução
+
+### Opção A — Windows (com UI desktop)
+
+```powershell
+# 1. Instalar dependências (cria venv automaticamente)
+.\instalar.bat
+
+# 2. Iniciar aplicação
+.\executar.bat
+# ou directamente:
+venv\Scripts\python main.py
+```
+
+A API REST inicia automaticamente em `http://localhost:5050`.
+
+### Opção B — Docker Compose (arquitectura distribuída)
+
+```bash
+# Configurar subnet (opcional)
+export ITINV_SUBNET=192.168.1.0/24
+
+# Iniciar todos os serviços
+docker compose up -d
+
+# Verificar estado
+docker compose ps
+docker compose logs -f
+
+# Parar
+docker compose down
+```
+
+Serviços disponíveis:
+- **API + Web UI**: `http://localhost:5050`
+- **Health check**: `http://localhost:5050/api/health`
+
+### Worker autónomo (sem Docker)
+
+```powershell
+# Uma execução
+venv\Scripts\python services\discovery_worker.py
+
+# Loop a cada 24 h
+venv\Scripts\python services\discovery_worker.py --loop 24 --subnet 192.168.1.0/24
+```
+
+---
+
+## API REST — Endpoints Principais
+
+| Método | Endpoint | Descrição |
+|---|---|---|
+| GET | `/api/health` | Estado da API (sem autenticação) |
+| GET | `/api/stats` | Totais, alertas, ciclo de vida |
+| GET | `/api/assets` | Lista de ativos (filtros: type, status, department, search) |
+| GET | `/api/assets/<id>` | Ativo por ID |
+| GET | `/api/assets/<id>/uptime` | Histórico de ping 24 h |
+| DELETE | `/api/assets/<id>` | Eliminar ativo |
+| GET | `/api/printers` | Impressoras |
+| GET | `/api/printers/critical` | Impressoras com toner crítico |
+| GET | `/api/alerts` | Alertas abertos |
+| GET | `/api/consumables` | Consumíveis |
+| GET | `/api/consumables/low-stock` | Consumíveis abaixo do mínimo |
+| GET | `/api/consumables/movements` | Histórico de movimentos de stock |
+| GET | `/api/consumables/<id>/movements` | Movimentos de um consumível |
+| POST | `/api/consumables/<id>/movements` | Registar entrada/saída de stock |
+| GET | `/api/network/status` | Estado actual da rede |
+| GET | `/api/network/history` | Histórico de métricas de rede |
+| GET | `/api/reports/inventory.xlsx` | Exportar inventário em Excel |
+| GET | `/api/lifecycle` | Relatório de ciclo de vida |
+
+**Autenticação (opcional):** header `X-API-Key: <chave>` se configurado nas definições.
+
+---
 
 ## Testes
 
-```bash
+```powershell
+# Todos os testes (unitários + integração)
 venv\Scripts\python -m pytest tests/ -v
+
+# Só testes de integração da API
+venv\Scripts\python -m pytest tests/test_api.py -v
+
+# Só testes unitários do classificador
+venv\Scripts\python -m pytest tests/test_classifier.py -v
 ```
 
-107 testes, 0 falhas.
+---
 
-## Arquitectura
+## Credenciais por Omissão
 
-A aplicação corre num servidor central (máquina com a app desktop) que expõe a API REST na porta 5050. Os clientes acedem via interface web no browser. A descoberta de rede, sync AD e polling SNMP correm em background via scheduler.
+| Utilizador | Password | Role |
+|---|---|---|
+| admin | admin | Administrador |
 
-Para ambientes distribuídos, existe um worker autónomo em `services/discovery_worker.py`.
-
-## Requisitos de Rede
-
-- Porta **5050** aberta no firewall do Windows (configurada automaticamente pelo `instalar.bat`)
-- Acesso SNMP (porta 161 UDP) aos dispositivos de rede
-- Acesso LDAP (porta 389) ao Domain Controller
+**Alterar a password após primeira execução nas Definições.**
