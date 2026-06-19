@@ -157,13 +157,13 @@ def init_db():
         """)
         # Default settings
         defaults = {
-            "subnet":              "192.168.163.0/24",
+            "subnet":              "",
             "snmp_community":      "public",
             "snmp_timeout_ms":     "3000",
             "ping_interval_s":     "300",
             "ping_max_workers":    "8",
-            "dc_host":             "192.168.163.12",
-            "ad_domain":           "sml.com",
+            "dc_host":             "",
+            "ad_domain":           "",
             "ad_user":             "",
             "ad_password":         "",
             "smtp_host":           "",
